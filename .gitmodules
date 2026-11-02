@@ -1,0 +1,6 @@
+[submodule "engine"]
+	path = engine
+	url = https://github.com/blixxurd/kanto.git
+[submodule "decomp"]
+	path = decomp
+	url = https://github.com/pret/pokefirered.git
