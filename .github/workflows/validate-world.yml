@@ -164,6 +164,123 @@ jobs:
             }
             console.log('PLAYER_MOVEMENT_AND_COLLISION=PASS ' + JSON.stringify({ beforeWalk, afterWalk, restored, blocked }));
 
+            // Walk the complete FireRed route with real keyboard input. No debug teleport is used here.
+            const sleep = ms => new Promise(resolve => setTimeout(resolve, ms));
+            const directions = [
+              { key: 'ArrowUp', dx: 0, dy: -1 },
+              { key: 'ArrowDown', dx: 0, dy: 1 },
+              { key: 'ArrowLeft', dx: -1, dy: 0 },
+              { key: 'ArrowRight', dx: 1, dy: 0 },
+            ];
+            const getSnapshot = () => page.evaluate(() => ({
+              pos: window.__gameDebug.getPlayerPos(),
+              zone: window.__gameDebug.getZone()?.id ?? null,
+              map: window.__gameDebug.getMapInfo(),
+              state: window.__gameDebug.getState(),
+            }));
+            const findPath = (map, start, target) => {
+              const { width, height, collision } = map;
+              const key = (x, y) => y * width + x;
+              const startKey = key(start.x, start.y);
+              const targetKey = key(target.x, target.y);
+              const prev = new Int32Array(width * height).fill(-1);
+              const queue = new Int32Array(width * height);
+              let head = 0, tail = 0;
+              queue[tail++] = startKey;
+              prev[startKey] = startKey;
+              while (head < tail && prev[targetKey] === -1) {
+                const current = queue[head++];
+                const x = current % width, y = Math.floor(current / width);
+                for (const d of directions) {
+                  const nx = x + d.dx, ny = y + d.dy;
+                  if (nx < 0 || ny < 0 || nx >= width || ny >= height) continue;
+                  const next = key(nx, ny);
+                  if (prev[next] !== -1 || collision[next] !== 0) continue;
+                  prev[next] = current;
+                  queue[tail++] = next;
+                }
+              }
+              if (prev[targetKey] === -1) return null;
+              const path = [];
+              for (let at = targetKey; at !== startKey; at = prev[at]) path.push(at);
+              path.reverse();
+              return path.map(at => ({ x: at % width, y: Math.floor(at / width) }));
+            };
+            const walkPath = async (target, label) => {
+              let snap = await getSnapshot();
+              const path = findPath(snap.map, snap.pos, target);
+              if (!path) throw new Error(label + ': no collision-free path from ' + JSON.stringify(snap.pos) + ' to ' + JSON.stringify(target) + ' on ' + snap.map.id);
+              for (const tile of path) {
+                const dx = tile.x - snap.pos.x, dy = tile.y - snap.pos.y;
+                const dir = directions.find(d => d.dx === dx && d.dy === dy);
+                if (!dir) throw new Error(label + ': non-adjacent route step');
+                await page.keyboard.down('Shift');
+                await page.keyboard.down(dir.key);
+                await page.waitForFunction(
+                  ({ x, y }) => { const p = window.__gameDebug.getPlayerPos(); return p.x === x && p.y === y; },
+                  tile,
+                  { timeout: 4000 },
+                ).catch(async () => {
+                  await page.keyboard.up(dir.key);
+                  await page.keyboard.up('Shift');
+                  throw new Error(label + ': movement stalled at ' + JSON.stringify(tile) + '; current=' + JSON.stringify(await page.evaluate(() => window.__gameDebug.getPlayerPos())));
+                });
+                await page.keyboard.up(dir.key);
+                await page.keyboard.up('Shift');
+                snap = await getSnapshot();
+              }
+              console.log('ROUTE_WALK=' + label + ' ' + JSON.stringify({ target, final: snap.pos, map: snap.map.id, zone: snap.zone, steps: path.length }));
+            };
+            const moveToWarp = async (destMap, label) => {
+              let snap = await getSnapshot();
+              const warp = snap.map.warps.find(w => w.destMap === destMap && snap.map.behavior[w.y * snap.map.width + w.x] === 0x69);
+              if (!warp) throw new Error(label + ': door warp to ' + destMap + ' not found on ' + snap.map.id);
+              const approach = { x: warp.x, y: warp.y + 1 };
+              await walkPath(approach, label + ' approach');
+              await page.keyboard.down('ArrowUp');
+              await page.waitForFunction(
+                oldMap => window.__gameDebug.getMapInfo()?.id !== oldMap && window.__gameDebug.getState() === 'playing',
+                snap.map.id,
+                { timeout: 30000 },
+              ).catch(async () => { throw new Error(label + ': door transition did not load destination; snapshot=' + JSON.stringify(await getSnapshot())); });
+              await page.keyboard.up('ArrowUp');
+              await page.waitForTimeout(300);
+              const arrived = await getSnapshot();
+              if (arrived.map.id !== destMap) throw new Error(label + ': expected ' + destMap + ', arrived at ' + arrived.map.id);
+              console.log('ROUTE_WARP=' + label + ' ' + JSON.stringify({ map: arrived.map.id, pos: arrived.pos, zone: arrived.zone }));
+            };
+
+            const routeStart = await getSnapshot();
+            if (routeStart.map.mode !== 'overworld' || routeStart.zone !== 'MAP_PALLET_TOWN') {
+              throw new Error('Route test must begin at Pallet Town spawn; got ' + JSON.stringify({ map: routeStart.map.id, zone: routeStart.zone, pos: routeStart.pos }));
+            }
+            const palletToForestGate = routeStart.map.warps.find(w => w.destMap === 'MAP_ROUTE2_VIRIDIAN_FOREST_SOUTH_ENTRANCE');
+            if (!palletToForestGate) throw new Error('Overworld warp to south Viridian Forest gatehouse is missing');
+            await walkPath({ x: palletToForestGate.x, y: palletToForestGate.y + 1 }, 'Pallet Town → Route 1 → Viridian City → Route 2');
+            await moveToWarp('MAP_ROUTE2_VIRIDIAN_FOREST_SOUTH_ENTRANCE', 'Enter south gatehouse');
+            await moveToWarp('MAP_VIRIDIAN_FOREST', 'Enter Viridian Forest');
+            await moveToWarp('MAP_ROUTE2_VIRIDIAN_FOREST_NORTH_ENTRANCE', 'Exit Viridian Forest north');
+            const northGate = await getSnapshot();
+            const route2Exit = northGate.map.warps.find(w => w.destMap === 'MAP_ROUTE2' && northGate.map.behavior[w.y * northGate.map.width + w.x] === 0x69);
+            if (!route2Exit) throw new Error('North gatehouse door back to Route 2 is missing');
+            await walkPath({ x: route2Exit.x, y: route2Exit.y + 1 }, 'Cross north gatehouse');
+            await page.keyboard.down('ArrowUp');
+            await page.waitForFunction(
+              oldMap => window.__gameDebug.getMapInfo()?.id === 'overworld' && window.__gameDebug.getState() === 'playing',
+              northGate.map.id,
+              { timeout: 30000 },
+            ).catch(async () => { throw new Error('Could not return to Route 2 from north gatehouse: ' + JSON.stringify(await getSnapshot())); });
+            await page.keyboard.up('ArrowUp');
+            const route2North = await getSnapshot();
+            if (route2North.zone !== 'MAP_ROUTE2') throw new Error('Expected to return to north Route 2, got zone ' + route2North.zone);
+            await walkPath({ x: 74, y: 82 }, 'Route 2 north → Pewter City');
+            const routeFinish = await getSnapshot();
+            if (routeFinish.zone !== 'MAP_PEWTER_CITY') {
+              throw new Error('Full route did not finish in Pewter City; got ' + JSON.stringify({ map: routeFinish.map.id, zone: routeFinish.zone, pos: routeFinish.pos }));
+            }
+            await page.screenshot({ path: 'tmp/screenshots/full_route_pewter.png' });
+            console.log('FULL_CONTINUOUS_ROUTE=PASS ' + JSON.stringify({ start: routeStart, finish: { map: routeFinish.map.id, zone: routeFinish.zone, pos: routeFinish.pos } }));
+
             const locations = [
               ['pallet_town', 74, 272, 'MAP_PALLET_TOWN'],
               ['viridian_city', 74, 202, 'MAP_VIRIDIAN_CITY'],
