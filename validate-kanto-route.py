@@ -141,6 +141,89 @@ def main() -> int:
     if not has_destination(north_gate, "MAP_ROUTE2"):
         ERRORS.append("North Route 2 gatehouse has no return warp to Route 2")
 
+    # Validate the actual walkable interior segments, not only the existence of warp links.
+    def interior_path(map_json, start, target, label):
+        if not map_json:
+            return False
+        mw, mh = int(map_json["width"]), int(map_json["height"])
+        grid = layer_data(map_json, "collision")
+        if grid is None or len(grid) != mw * mh:
+            ERRORS.append(f"{label}: missing or malformed collision grid")
+            return False
+        reached = flood(mw, mh, grid, start)
+        if target not in reached:
+            ERRORS.append(f"{label}: no walkable path from {start} to {target}")
+            return False
+        print(f"  PASS: {label} walkable ({start} → {target})")
+        return True
+
+    def approach_for_north_door(warp):
+        # Door warps are entered by standing one tile south and pressing UP.
+        return (warp["x"], warp["y"] + 1)
+
+    south_warps = object_warps(south_gate)
+    forest_warps = object_warps(forest)
+    north_warps = object_warps(north_gate)
+
+    # Overworld warp destWarpId values are array indices in the destination map.
+    if len(south_warps) <= 1:
+        ERRORS.append("South gatehouse is missing its expected entry warp index 1")
+    elif south_warps:
+        forest_door = next((w for w in south_warps if w["dest"] == "MAP_VIRIDIAN_FOREST"), None)
+        if not forest_door:
+            ERRORS.append("South gatehouse has no walkable exit door into Viridian Forest")
+        else:
+            interior_path(
+                south_gate, (south_warps[1]["x"], south_warps[1]["y"]),
+                approach_for_north_door(forest_door), "South gatehouse",
+            )
+
+    if len(forest_warps) == 0:
+        ERRORS.append("Viridian Forest is missing its south-entry spawn warp")
+    else:
+        north_exit = next(
+            (w for w in forest_warps if w["dest"] == "MAP_ROUTE2_VIRIDIAN_FOREST_NORTH_ENTRANCE"),
+            None,
+        )
+        if not north_exit:
+            ERRORS.append("Viridian Forest has no north exit warp")
+        else:
+            interior_path(
+                forest, (forest_warps[0]["x"], forest_warps[0]["y"]),
+                (north_exit["x"], north_exit["y"]), "Viridian Forest",
+            )
+
+    if len(north_warps) <= 1:
+        ERRORS.append("North gatehouse is missing its expected forest-entry spawn warp index 1")
+    elif north_warps:
+        route2_door = next((w for w in north_warps if w["dest"] == "MAP_ROUTE2"), None)
+        if not route2_door:
+            ERRORS.append("North gatehouse has no exit door to Route 2")
+        else:
+            interior_path(
+                north_gate, (north_warps[1]["x"], north_warps[1]["y"]),
+                approach_for_north_door(route2_door), "North gatehouse",
+            )
+
+    # The north gatehouse return must place the player on the north half of Route 2.
+    north_returns = warp_data.get("interiorReturns", {}).get(
+        "MAP_ROUTE2_VIRIDIAN_FOREST_NORTH_ENTRANCE", []
+    )
+    if not north_returns:
+        ERRORS.append("North gatehouse has no return coordinate into Route 2")
+    else:
+        ret = north_returns[0]
+        return_point = (int(ret["returnX"]), int(ret["returnY"]))
+        post_forest_reachable = flood(width, height, collision, return_point)
+        if not post_forest_reachable:
+            ERRORS.append(f"North gatehouse return {return_point} is not walkable on Route 2")
+        elif "MAP_PEWTER_CITY" in zones and not any(
+            in_zone(point, zones["MAP_PEWTER_CITY"]) for point in post_forest_reachable
+        ):
+            ERRORS.append("Pewter City cannot be reached on foot after exiting the north gatehouse")
+        else:
+            print(f"  PASS: Route 2 north → Pewter City walkable from {return_point}")
+
     if ERRORS:
         print(f"FAIL: {len(ERRORS)} main-route errors")
         for error in ERRORS:
