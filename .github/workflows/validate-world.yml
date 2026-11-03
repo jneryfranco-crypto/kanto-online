@@ -87,7 +87,7 @@ jobs:
           page.on('requestfailed', req => diagnostics.push('[requestfailed] ' + req.url() + ' — ' + req.failure()?.errorText));
           try {
             await page.goto('http://127.0.0.1:3000/', { waitUntil: 'domcontentloaded' });
-            await page.waitForFunction(() => !!window.__gameDebug, { timeout: 30000 }).catch(() => {});
+            await page.waitForFunction(() => !!window.__gameDebug, null, { timeout: 30000 }).catch(() => {});
             await page.waitForTimeout(1500);
             mkdirSync('tmp/screenshots', { recursive: true });
             const initial = await page.evaluate(() => ({
@@ -106,23 +106,28 @@ jobs:
               throw new Error('Game did not finish initialization; debug API or rendered canvas is missing.');
             }
             const locations = [
-              ['pallet_town', 74, 272],
-              ['viridian_city', 74, 202],
-              ['pewter_city', 74, 82],
-              ['cerulean_city', 290, 62],
-              ['vermilion_city', 290, 222],
-              ['lavender_town', 398, 142],
-              ['celadon_city', 212, 142],
-              ['fuchsia_city', 218, 322],
+              ['pallet_town', 74, 272, 'MAP_PALLET_TOWN'],
+              ['viridian_city', 74, 202, 'MAP_VIRIDIAN_CITY'],
+              ['pewter_city', 74, 82, 'MAP_PEWTER_CITY'],
+              ['cerulean_city', 290, 62, 'MAP_CERULEAN_CITY'],
+              ['vermilion_city', 290, 222, 'MAP_VERMILION_CITY'],
+              ['lavender_town', 398, 142, 'MAP_LAVENDER_TOWN'],
+              ['celadon_city', 212, 142, 'MAP_CELADON_CITY'],
+              ['fuchsia_city', 218, 322, 'MAP_FUCHSIA_CITY'],
             ];
-            for (const [name, x, y] of locations) {
+            for (const [name, x, y, expectedZone] of locations) {
               await page.evaluate(([tx, ty]) => window.__gameDebug.teleport(tx, ty), [x, y]);
               await page.waitForTimeout(500);
               await page.screenshot({ path: 'tmp/screenshots/' + name + '.png' });
-              console.log('CAPTURED=' + name + ' ' + JSON.stringify(await page.evaluate(() => ({
+              const result = await page.evaluate(() => ({
                 player: window.__gameDebug.getPlayerPos(),
                 zone: window.__gameDebug.getZone()?.name ?? null,
-              }))));
+                zoneId: window.__gameDebug.getZone()?.id ?? null,
+              }));
+              console.log('CAPTURED=' + name + ' ' + JSON.stringify(result));
+              if (result.zoneId !== expectedZone) {
+                throw new Error(name + ': expected zone ' + expectedZone + ', got ' + result.zoneId);
+              }
             }
             console.log('BROWSER_DIAGNOSTICS=' + JSON.stringify(diagnostics));
           } finally {
