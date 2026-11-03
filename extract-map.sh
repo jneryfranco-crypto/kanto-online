@@ -13,6 +13,13 @@ if ! grep -q "Landing dust sprite unavailable; landing effect disabled" "$LANDIN
   git -C "$ENGINE" apply "$PATCH_FILE"
 fi
 
+# Expose read-only active-map data to Playwright for real route traversal tests.
+RUNTIME_DEBUG_PATCH="$ROOT/patches/engine/runtime-map-debug.patch"
+if ! grep -q "getMapInfo: () =>" "$ENGINE/src/Game.ts"; then
+  git -C "$ENGINE" apply --check "$RUNTIME_DEBUG_PATCH"
+  git -C "$ENGINE" apply "$RUNTIME_DEBUG_PATCH"
+fi
+
 # Run every asset exporter in dependency order. The upstream aggregate script
 # validates the player sprite before exporting it, so use the individual stages.
 for step in \
