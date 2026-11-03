@@ -7,7 +7,7 @@ if (-not (Test-Path $Link)) {
     New-Item -ItemType Junction -Path $Link -Target (Resolve-Path (Join-Path $Root 'decomp')) | Out-Null
 }
 Set-Location (Join-Path $Root 'engine')
-npm install
+npm ci
 python -m pip install -r scripts/requirements.txt
 Set-Location $Root
 bash ./extract-map.sh
