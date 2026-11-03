@@ -9,7 +9,9 @@ fi
 cd "$ROOT/engine"
 npm install
 python3 -m pip install -r scripts/requirements.txt
-npm run extract
-npm test
+cd "$ROOT"
+bash ./extract-map.sh
+cd "$ROOT/engine"
 npm run typecheck
-printf '\nPreparação concluída. Para iniciar: cd engine && npm run dev\n'
+npm run build
+printf '\nPreparação concluída. Para iniciar: npm run dev\n'
