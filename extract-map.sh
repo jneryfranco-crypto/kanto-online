@@ -27,6 +27,12 @@ if ! grep -q "createTouchControls" "$ENGINE/src/core/Input.ts"; then
   git -C "$ENGINE" apply "$MOBILE_CONTROLS_PATCH"
 fi
 
+MOBILE_HUD_PATCH="$ROOT/patches/engine/mobile-hud-css.patch"
+if ! grep -q "kanto-touch-controls" "$ENGINE/index.html"; then
+  git -C "$ENGINE" apply --check "$MOBILE_HUD_PATCH"
+  git -C "$ENGINE" apply "$MOBILE_HUD_PATCH"
+fi
+
 # Run every asset exporter in dependency order. The upstream aggregate script
 # validates the player sprite before exporting it, so use the individual stages.
 for step in \
