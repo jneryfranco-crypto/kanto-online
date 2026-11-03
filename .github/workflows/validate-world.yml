@@ -146,6 +146,7 @@ jobs:
           NODE
 
       - name: Reject screenshots with large blank rendering regions
+        working-directory: engine
         run: |
           python - <<'PY'
           from pathlib import Path
