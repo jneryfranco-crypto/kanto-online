@@ -55,3 +55,31 @@ jobs:
         run: |
           npm run typecheck
           npm run build
+
+      - name: Install Chromium for visual smoke test
+        working-directory: engine
+        run: npx playwright install --with-deps chromium
+
+      - name: Launch game and capture key Kanto locations
+        working-directory: engine
+        run: |
+          npm run dev -- --host 127.0.0.1 > /tmp/kanto-vite.log 2>&1 &
+          for i in $(seq 1 30); do
+            if curl --fail --silent http://127.0.0.1:3000/ > /dev/null; then break; fi
+            sleep 2
+          done
+          curl --fail http://127.0.0.1:3000/
+          KANTO_URL=http://127.0.0.1:3000 node scripts/tests/browser_test.mjs test-rendering
+
+      - name: Upload generated map and visual evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: kanto-fire-red-validation
+          path: |
+            engine/public/
+            engine/dist/
+            engine/tmp/screenshots/
+            /tmp/kanto-vite.log
+          if-no-files-found: warn
+          retention-days: 7
