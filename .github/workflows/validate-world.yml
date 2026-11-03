@@ -108,10 +108,24 @@ jobs:
             }
 
             // Exercise real keyboard movement and collision, without using debug teleport.
-            const beforeWalk = await page.evaluate(() => window.__gameDebug.getPlayerPos());
-            // Give the game canvas keyboard focus before sending real browser input.
+            const beforeWalk = await page.evaluate(() => {
+              window.__testKeyboardEvents = [];
+              window.addEventListener('keydown', e => window.__testKeyboardEvents.push(e.key), true);
+              return window.__gameDebug.getPlayerPos();
+            });
+            // Give the game canvas keyboard focus and hold the key long enough for the game loop to poll it.
             await page.locator('#game-container canvas').click({ position: { x: 480, y: 320 } });
-            await page.keyboard.press('ArrowUp');
+            await page.keyboard.down('ArrowUp');
+            await page.waitForTimeout(200);
+            const inputWhileHeld = await page.evaluate(() => ({
+              input: window.__gameDebug.getInputState(),
+              events: window.__testKeyboardEvents,
+              player: window.__gameDebug.getPlayerPos(),
+            }));
+            await page.keyboard.up('ArrowUp');
+            if (inputWhileHeld.input.direction !== 'up' || !inputWhileHeld.input.holding || !inputWhileHeld.events.includes('ArrowUp')) {
+              throw new Error('Keyboard input did not reach game: ' + JSON.stringify(inputWhileHeld));
+            }
             // A walk animation advances in 12 game frames; allow slower CI frame rates.
             await page.waitForFunction(
               ({ x, y }) => {
@@ -125,7 +139,9 @@ jobs:
             if (afterWalk.x !== beforeWalk.x || afterWalk.y !== beforeWalk.y - 1) {
               throw new Error('Real movement failed: expected one tile north, got ' + JSON.stringify(afterWalk));
             }
-            await page.keyboard.press('ArrowDown');
+            await page.keyboard.down('ArrowDown');
+            await page.waitForTimeout(200);
+            await page.keyboard.up('ArrowDown');
             await page.waitForFunction(
               ({ x, y }) => {
                 const p = window.__gameDebug.getPlayerPos();
@@ -138,7 +154,9 @@ jobs:
             if (restored.x !== beforeWalk.x || restored.y !== beforeWalk.y) {
               throw new Error('Return movement failed: expected original spawn, got ' + JSON.stringify(restored));
             }
-            await page.keyboard.press('ArrowRight');
+            await page.keyboard.down('ArrowRight');
+            await page.waitForTimeout(200);
+            await page.keyboard.up('ArrowRight');
             await page.waitForTimeout(500);
             const blocked = await page.evaluate(() => window.__gameDebug.getPlayerPos());
             if (blocked.x !== beforeWalk.x || blocked.y !== beforeWalk.y) {
