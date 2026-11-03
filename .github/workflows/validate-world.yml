@@ -69,7 +69,7 @@ jobs:
             sleep 2
           done
           curl --fail http://127.0.0.1:3000/
-          KANTO_URL=http://127.0.0.1:3000 node scripts/tests/browser_test.mjs test-rendering
+          KANTO_URL=http://127.0.0.1:3000 node scripts/tests/browser_test.mjs console
 
       - name: Upload generated map and visual evidence
         if: always()
