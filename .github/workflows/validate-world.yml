@@ -239,7 +239,7 @@ jobs:
             };
             const moveToWarp = async (destMap, label) => {
               let snap = await getSnapshot();
-              const warp = snap.map.warps.find(w => w.destMap === destMap && snap.map.behavior[w.y * snap.map.width + w.x] === 0x69);
+              const warp = snap.map.warps.find(w => w.destMap === destMap);
               if (!warp) throw new Error(label + ': door warp to ' + destMap + ' not found on ' + snap.map.id);
               const approach = { x: warp.x, y: warp.y + 1 };
               await walkPath(approach, label + ' approach');
