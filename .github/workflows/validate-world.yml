@@ -214,16 +214,18 @@ jobs:
                 const dx = tile.x - snap.pos.x, dy = tile.y - snap.pos.y;
                 const dir = directions.find(d => d.dx === dx && d.dy === dy);
                 if (!dir) throw new Error(label + ': non-adjacent route step');
+                // Tap briefly, then release immediately. Waiting for the destination while
+                // holding the key can trigger repeated steps and skip over the target tile.
                 await page.keyboard.down(dir.key);
+                await sleep(50);
+                await page.keyboard.up(dir.key);
                 await page.waitForFunction(
                   ({ x, y }) => { const p = window.__gameDebug.getPlayerPos(); return p.x === x && p.y === y; },
                   tile,
                   { timeout: 4000, polling: 10 },
                 ).catch(async () => {
-                  await page.keyboard.up(dir.key);
-                  throw new Error(label + ': movement stalled at ' + JSON.stringify(tile) + '; current=' + JSON.stringify(await page.evaluate(() => window.__gameDebug.getPlayerPos())));
+                  throw new Error(label + ': expected tile ' + JSON.stringify(tile) + ' but current=' + JSON.stringify(await page.evaluate(() => window.__gameDebug.getPlayerPos())));
                 });
-                await page.keyboard.up(dir.key);
                 snap = await getSnapshot();
               }
               console.log('ROUTE_WALK=' + label + ' ' + JSON.stringify({ target, final: snap.pos, map: snap.map.id, zone: snap.zone, steps: path.length }));
