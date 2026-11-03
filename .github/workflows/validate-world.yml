@@ -130,6 +130,15 @@ jobs:
                 throw new Error(name + ': expected zone ' + expectedZone + ', got ' + result.zoneId);
               }
             }
+            const fatalDiagnostics = diagnostics.filter(line =>
+              line.startsWith('[pageerror]') ||
+              line.startsWith('[console:error]') ||
+              (line.startsWith('[requestfailed]') && !line.includes('/sprites/landing_dust.png'))
+            );
+            if (fatalDiagnostics.length) {
+              console.error('FATAL_BROWSER_DIAGNOSTICS=' + JSON.stringify(fatalDiagnostics));
+              throw new Error('Browser reported runtime errors or failed required asset requests.');
+            }
             console.log('BROWSER_DIAGNOSTICS=' + JSON.stringify(diagnostics));
           } finally {
             await browser.close();
