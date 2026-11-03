@@ -42,7 +42,9 @@ bash ./setup-map.sh
 .\setup-map.ps1
 ```
 
-A extração é executada por `extract-map.sh`. Ela chama os mesmos scripts da engine na ordem correta: primeiro os tilesets, layouts, cabeçalhos, warps e colisões; depois costura o mundo externo, exporta mapas internos e extrai os sprites do jogador; por fim executa a suíte completa de validação. Essa ordem evita um erro do script agregador upstream, que tenta validar o sprite antes de gerá-lo.
+A extração é executada por `extract-map.sh`. Ela chama os 12 exportadores da engine na ordem correta: tilesets, layouts, cabeçalhos, warps, colisões, costura do mundo, mapas internos, jogador, animações de tiles, portas, sprites de surfe e NPCs. Em seguida exporta o efeito de grama, verifica os arquivos exigidos pelo runtime e executa a suíte completa de validação. Essa ordem evita um erro do agregador upstream, que tenta validar o sprite do jogador antes de gerá-lo.
+
+O pequeno patch em `patches/engine/` evita que a ausência do efeito cosmético de poeira ao aterrissar interrompa a inicialização do jogo; os demais assets obrigatórios são verificados pelo `validate-runtime-assets.py`.
 
 Para iniciar manualmente depois da preparação:
 
