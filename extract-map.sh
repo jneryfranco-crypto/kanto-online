@@ -20,6 +20,13 @@ if ! grep -q "getMapInfo: () =>" "$ENGINE/src/Game.ts"; then
   git -C "$ENGINE" apply "$RUNTIME_DEBUG_PATCH"
 fi
 
+# Add responsive touch controls without changing desktop keyboard input.
+MOBILE_CONTROLS_PATCH="$ROOT/patches/engine/mobile-touch-controls.patch"
+if ! grep -q "createTouchControls" "$ENGINE/src/core/Input.ts"; then
+  git -C "$ENGINE" apply --check "$MOBILE_CONTROLS_PATCH"
+  git -C "$ENGINE" apply "$MOBILE_CONTROLS_PATCH"
+fi
+
 # Run every asset exporter in dependency order. The upstream aggregate script
 # validates the player sprite before exporting it, so use the individual stages.
 for step in \
