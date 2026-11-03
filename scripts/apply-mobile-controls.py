@@ -52,8 +52,13 @@ if "createTouchControls()" not in source:
     const joystick = root.querySelector<HTMLElement>('.kanto-joystick')!;
     const knob = root.querySelector<HTMLElement>('.kanto-joystick-knob')!;
     let pointerId: number | null = null;
+    let activeDirection: string | null = null;
+    const sendKey = (type: 'keydown' | 'keyup', key: string) => {
+      window.dispatchEvent(new KeyboardEvent(type, { key, bubbles: true }));
+    };
     const release = () => {
-      for (const key of ['ArrowUp','ArrowDown','ArrowLeft','ArrowRight']) this.touchKeys.delete(key);
+      if (activeDirection) sendKey('keyup', activeDirection);
+      activeDirection = null;
       pointerId = null;
       knob.style.transform = 'translate(-50%, -50%)';
     };
@@ -65,10 +70,15 @@ if "createTouchControls()" not in source:
       const length = Math.hypot(dx, dy) || 1;
       const scale = Math.min(1, limit / length);
       knob.style.transform = `translate(calc(-50% + ${dx * scale}px), calc(-50% + ${dy * scale}px))`;
-      for (const key of ['ArrowUp','ArrowDown','ArrowLeft','ArrowRight']) this.touchKeys.delete(key);
+      let nextDirection: string | null = null;
       if (Math.max(Math.abs(dx), Math.abs(dy)) > rect.width * 0.12) {
-        if (Math.abs(dx) > Math.abs(dy)) this.touchKeys.add(dx < 0 ? 'ArrowLeft' : 'ArrowRight');
-        else this.touchKeys.add(dy < 0 ? 'ArrowUp' : 'ArrowDown');
+        if (Math.abs(dx) > Math.abs(dy)) nextDirection = dx < 0 ? 'ArrowLeft' : 'ArrowRight';
+        else nextDirection = dy < 0 ? 'ArrowUp' : 'ArrowDown';
+      }
+      if (nextDirection !== activeDirection) {
+        if (activeDirection) sendKey('keyup', activeDirection);
+        activeDirection = nextDirection;
+        if (activeDirection) sendKey('keydown', activeDirection);
       }
     };
     joystick.addEventListener('pointerdown', event => {
@@ -84,9 +94,9 @@ if "createTouchControls()" not in source:
     root.querySelectorAll<HTMLButtonElement>('[data-key]').forEach(button => {
       const key = button.dataset.key!;
       const down = (event: PointerEvent) => {
-        event.preventDefault(); button.setPointerCapture(event.pointerId); this.touchKeys.add(key);
+        event.preventDefault(); button.setPointerCapture(event.pointerId); sendKey('keydown', key);
       };
-      const up = () => { this.touchKeys.delete(key); };
+      const up = () => { sendKey('keyup', key); };
       button.addEventListener('pointerdown', down);
       button.addEventListener('pointerup', up);
       button.addEventListener('pointercancel', up);
