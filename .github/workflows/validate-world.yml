@@ -61,7 +61,7 @@ jobs:
         working-directory: engine
         run: npx playwright install --with-deps chromium
 
-      - name: Launch game and capture key Kanto locations
+      - name: Launch game, diagnose initialization and capture Kanto locations
         working-directory: engine
         run: |
           npm run dev -- --host 127.0.0.1 > /tmp/kanto-vite.log 2>&1 &
@@ -69,8 +69,64 @@ jobs:
             if curl --fail --silent http://127.0.0.1:3000/ > /dev/null; then break; fi
             sleep 2
           done
-          curl --fail http://127.0.0.1:3000/
-          KANTO_URL=http://127.0.0.1:3000 node scripts/tests/browser_test.mjs test-rendering
+          curl --fail --silent http://127.0.0.1:3000/ > /dev/null
+          node --input-type=module <<'NODE'
+          import { chromium } from 'playwright';
+          import { mkdirSync } from 'node:fs';
+
+          const browser = await chromium.launch({
+            headless: true,
+            args: ['--use-gl=angle', '--use-angle=swiftshader', '--enable-unsafe-swiftshader', '--enable-webgl', '--ignore-gpu-blocklist'],
+          });
+          const page = await browser.newPage({ viewport: { width: 960, height: 640 } });
+          const diagnostics = [];
+          page.on('console', msg => diagnostics.push('[console:' + msg.type() + '] ' + msg.text()));
+          page.on('pageerror', err => diagnostics.push('[pageerror] ' + err.stack));
+          page.on('requestfailed', req => diagnostics.push('[requestfailed] ' + req.url() + ' — ' + req.failure()?.errorText));
+          try {
+            await page.goto('http://127.0.0.1:3000/', { waitUntil: 'domcontentloaded' });
+            await page.waitForFunction(() => !!window.__gameDebug, { timeout: 30000 }).catch(() => {});
+            await page.waitForTimeout(1500);
+            mkdirSync('tmp/screenshots', { recursive: true });
+            const initial = await page.evaluate(() => ({
+              debugApi: !!window.__gameDebug,
+              canvasCount: document.querySelectorAll('#game-container canvas').length,
+              canvas: [...document.querySelectorAll('#game-container canvas')].map(c => ({ width: c.width, height: c.height })),
+              state: window.__gameDebug?.getState?.() ?? null,
+              player: window.__gameDebug?.getPlayerPos?.() ?? null,
+              zone: window.__gameDebug?.getZone?.()?.name ?? null,
+            }));
+            await page.screenshot({ path: 'tmp/screenshots/initial_spawn.png' });
+            console.log('INITIAL_BROWSER_STATE=' + JSON.stringify(initial));
+            if (!initial.debugApi || initial.canvasCount === 0 || initial.state !== 'playing') {
+              console.error('GAME_INITIALIZATION_FAILED; browser diagnostics follow:');
+              diagnostics.forEach(line => console.error(line));
+              throw new Error('Game did not finish initialization; debug API or rendered canvas is missing.');
+            }
+            const locations = [
+              ['pallet_town', 74, 272],
+              ['viridian_city', 74, 202],
+              ['pewter_city', 74, 82],
+              ['cerulean_city', 290, 62],
+              ['vermilion_city', 290, 222],
+              ['lavender_town', 398, 142],
+              ['celadon_city', 212, 142],
+              ['fuchsia_city', 218, 322],
+            ];
+            for (const [name, x, y] of locations) {
+              await page.evaluate(([tx, ty]) => window.__gameDebug.teleport(tx, ty), [x, y]);
+              await page.waitForTimeout(500);
+              await page.screenshot({ path: 'tmp/screenshots/' + name + '.png' });
+              console.log('CAPTURED=' + name + ' ' + JSON.stringify(await page.evaluate(() => ({
+                player: window.__gameDebug.getPlayerPos(),
+                zone: window.__gameDebug.getZone()?.name ?? null,
+              }))));
+            }
+            console.log('BROWSER_DIAGNOSTICS=' + JSON.stringify(diagnostics));
+          } finally {
+            await browser.close();
+          }
+          NODE
 
       - name: Upload generated map and visual evidence
         if: always()
