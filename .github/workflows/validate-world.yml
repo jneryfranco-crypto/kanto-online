@@ -141,7 +141,7 @@ jobs:
           python - <<'PY'
           from pathlib import Path
           from PIL import Image
-          import sys
+          import numpy as np
 
           screenshots = sorted(Path("tmp/screenshots").glob("*.png"))
           if len(screenshots) < 9:
@@ -149,10 +149,8 @@ jobs:
           failures = []
           for path in screenshots:
               with Image.open(path) as image:
-                  rgb = image.convert("RGB")
-                  pixels = list(rgb.getdata())
-                  black = sum(1 for pixel in pixels if pixel == (0, 0, 0))
-                  ratio = black / max(1, len(pixels))
+                  pixels = np.asarray(image.convert("RGB"))
+                  ratio = float(np.all(pixels == 0, axis=2).mean())
                   print(f"{path.name}: {ratio:.2%} pure-black pixels")
                   if ratio > 0.05:
                       failures.append(f"{path.name}: {ratio:.2%} pure-black pixels")
