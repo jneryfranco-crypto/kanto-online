@@ -26,35 +26,32 @@ Se já clonou antes sem submódulos:
 git submodule update --init --recursive
 ```
 
-A engine espera encontrar a descompilação em `engine/decomp`. O repositório a mantém separada como submódulo na raiz para não misturar os dois projetos. Crie uma ligação local:
+A engine espera encontrar a descompilação em `engine/decomp`. O repositório a mantém separada como submódulo na raiz; os scripts de preparação criam a ligação local automaticamente.
 
-**macOS / Linux:**
-
-```bash
-ln -s ../decomp engine/decomp
-```
-
-**Windows PowerShell (na pasta raiz do projeto):**
-
-```powershell
-New-Item -ItemType Junction -Path engine\decomp -Target (Resolve-Path decomp)
-```
-
-## Instalar e gerar os dados
+## Instalar, extrair e validar
 
 Requisitos: Node.js 18+, npm, Python 3.10+ e Git.
 
+**macOS / Linux:**
+```bash
+bash ./setup-map.sh
+```
+
+**Windows PowerShell:**
+```powershell
+.\setup-map.ps1
+```
+
+A extração é executada por `extract-map.sh`. Ela chama os mesmos scripts da engine na ordem correta: primeiro os tilesets, layouts, cabeçalhos, warps e colisões; depois costura o mundo externo, exporta mapas internos e extrai os sprites do jogador; por fim executa a suíte completa de validação. Essa ordem evita um erro do script agregador upstream, que tenta validar o sprite antes de gerá-lo.
+
+Para iniciar manualmente depois da preparação:
+
 ```bash
 cd engine
-npm install
-python -m pip install -r scripts/requirements.txt
-npm run extract
-npm test
-npm run typecheck
 npm run dev
 ```
 
-O comando `npm run extract` gera os mapas, atlas de tiles, colisões, warps e sprites localmente. Os arquivos gerados não são versionados neste repositório; a extração usa a revisão de `pret/pokefirered` fixada pelo submódulo.
+Os arquivos gerados localmente não são versionados neste repositório. A extração usa a revisão de `pret/pokefirered` fixada pelo submódulo.
 
 ## Controles da engine
 
