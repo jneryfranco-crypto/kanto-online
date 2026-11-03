@@ -53,6 +53,68 @@ def main() -> int:
     check_image("sprites/player_male.png", (48, 128))
     check_image("sprites/tall_grass.png", (16, 80))
 
+    # The bottom layer must never reference a fully transparent metatile.
+    # This catches broken primary/secondary tileset pairing before a black map ships.
+    overworld = read_json("maps/overworld.json")
+    if overworld is not None:
+        bottom_layer = next(
+            (layer for layer in overworld.get("layers", [])
+             if layer.get("name") == "bottom" and layer.get("type") == "tilelayer"),
+            None,
+        )
+        if bottom_layer is None:
+            ERRORS.append("Overworld is missing its bottom tile layer")
+        else:
+            tileset_refs = sorted(overworld.get("tilesets", []), key=lambda item: item["firstgid"])
+            atlas_cache = {}
+            used_gids = sorted({int(gid) for gid in bottom_layer.get("data", []) if int(gid) > 0})
+            for gid in used_gids:
+                candidates = [ref for ref in tileset_refs if int(ref["firstgid"]) <= gid]
+                if not candidates:
+                    ERRORS.append(f"Bottom layer GID {gid} has no tileset")
+                    continue
+                ref = candidates[-1]
+                source = ref["source"]
+                tsj = read_json(f"tilesets/{source}")
+                if tsj is None:
+                    continue
+                local_id = gid - int(ref["firstgid"])
+                tile_count = int(tsj.get("tilecount", 0))
+                if local_id < 0 or local_id >= tile_count:
+                    ERRORS.append(
+                        f"Bottom layer GID {gid} exceeds {source} tilecount ({tile_count})"
+                    )
+                    continue
+                if source not in atlas_cache:
+                    image_path = f"tilesets/{tsj.get('image', '')}"
+                    atlas_file = require_file(image_path)
+                    if atlas_file is None:
+                        continue
+                    try:
+                        atlas_cache[source] = Image.open(atlas_file).convert("RGBA")
+                    except Exception as exc:
+                        ERRORS.append(f"Cannot open bottom atlas public/{image_path}: {exc}")
+                        continue
+                atlas = atlas_cache.get(source)
+                if atlas is None:
+                    continue
+                columns = int(tsj.get("columns", 0))
+                tile_w = int(tsj.get("tilewidth", 0))
+                tile_h = int(tsj.get("tileheight", 0))
+                if columns <= 0 or tile_w <= 0 or tile_h <= 0:
+                    ERRORS.append(f"Invalid tile geometry in {source}")
+                    continue
+                px = (local_id % columns) * tile_w
+                py = (local_id // columns) * tile_h
+                tile = atlas.crop((px, py, px + tile_w, py + tile_h))
+                if tile.getchannel("A").getbbox() is None:
+                    ERRORS.append(
+                        f"Used bottom tile GID {gid} ({source}, local tile {local_id}) is fully transparent"
+                    )
+            for atlas in atlas_cache.values():
+                atlas.close()
+            print(f"  Checked {len(used_gids)} unique bottom-layer tile GIDs for transparency")
+
     # Every animation manifest must resolve to real, decodable files.
     tile_manifest = read_json("data/tile_anims.json")
     if tile_manifest is not None:
