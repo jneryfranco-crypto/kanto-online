@@ -8,6 +8,7 @@ on:
       - "README_MAPA.md"
       - "setup-map.sh"
       - "setup-map.ps1"
+      - "extract-map.sh"
       - ".github/workflows/validate-world.yml"
       - "engine"
       - "decomp"
@@ -46,13 +47,8 @@ jobs:
           npm ci
           python -m pip install -r scripts/requirements.txt
 
-      - name: Extract map data from FireRed source
-        working-directory: engine
-        run: npm run extract
-
-      - name: Validate extraction, map stitching, traversal and warps
-        working-directory: engine
-        run: npm test
+      - name: Extract maps and run all validators in dependency order
+        run: bash ./extract-map.sh
 
       - name: Type-check and production build
         working-directory: engine
