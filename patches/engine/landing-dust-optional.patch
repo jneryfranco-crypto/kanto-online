@@ -1,0 +1,18 @@
+diff --git a/src/effects/LandingDustEffect.ts b/src/effects/LandingDustEffect.ts
+--- a/src/effects/LandingDustEffect.ts
++++ b/src/effects/LandingDustEffect.ts
+@@ -23,7 +23,13 @@ export class LandingDustEffect {
+   }
+ 
+   async load(): Promise<void> {
+-    const tex = await Assets.load('./sprites/landing_dust.png') as Texture;
++    let tex: Texture;
++    try {
++      tex = await Assets.load('./sprites/landing_dust.png') as Texture;
++    } catch (error) {
++      console.warn('Landing dust sprite unavailable; landing effect disabled:', error);
++      return;
++    }
+     tex.source.scaleMode = 'nearest';
+ 
+     for (let i = 0; i < FRAME_COUNT; i++) {
