@@ -11,6 +11,7 @@ on:
       - "extract-map.sh"
       - "extract-field-effects.py"
       - "validate-runtime-assets.py"
+      - "validate-kanto-route.py"
       - "patches/**"
       - ".github/workflows/validate-world.yml"
       - "engine"
@@ -134,6 +135,31 @@ jobs:
             await browser.close();
           }
           NODE
+
+      - name: Reject screenshots with large blank rendering regions
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+          from PIL import Image
+          import sys
+
+          screenshots = sorted(Path("tmp/screenshots").glob("*.png"))
+          if len(screenshots) < 9:
+              raise SystemExit(f"Expected 9 screenshots, found {len(screenshots)}")
+          failures = []
+          for path in screenshots:
+              with Image.open(path) as image:
+                  rgb = image.convert("RGB")
+                  pixels = list(rgb.getdata())
+                  black = sum(1 for pixel in pixels if pixel == (0, 0, 0))
+                  ratio = black / max(1, len(pixels))
+                  print(f"{path.name}: {ratio:.2%} pure-black pixels")
+                  if ratio > 0.05:
+                      failures.append(f"{path.name}: {ratio:.2%} pure-black pixels")
+          if failures:
+              raise SystemExit("Blank map regions detected: " + "; ".join(failures))
+          print("PASS: all town screenshots contain rendered map content")
+          PY
 
       - name: Upload generated map and visual evidence
         if: always()
