@@ -16,8 +16,8 @@ fi
 # Run every asset exporter in dependency order. The upstream aggregate script
 # validates the player sprite before exporting it, so use the individual stages.
 for step in \
-  01_render_metatile_atlases.py \
   02_extract_layouts.py \
+  01_render_metatile_atlases.py \
   03_extract_map_headers.py \
   04_extract_warps.py \
   05_extract_collision.py \
