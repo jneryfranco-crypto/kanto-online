@@ -9,7 +9,9 @@ if (-not (Test-Path $Link)) {
 Set-Location (Join-Path $Root 'engine')
 npm install
 python -m pip install -r scripts/requirements.txt
-npm run extract
-npm test
+Set-Location $Root
+bash ./extract-map.sh
+Set-Location (Join-Path $Root 'engine')
 npm run typecheck
-Write-Host "Preparação concluída. Para iniciar: cd engine; npm run dev"
+npm run build
+Write-Host "Preparação concluída. Para iniciar: npm run dev"
