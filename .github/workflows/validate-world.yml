@@ -75,7 +75,7 @@ jobs:
           curl --fail --silent http://127.0.0.1:3000/ > /dev/null
           node --input-type=module <<'NODE'
           import { chromium } from 'playwright';
-          import { mkdirSync } from 'node:fs';
+          import { mkdirSync, readFileSync } from 'node:fs';
 
           const browser = await chromium.launch({
             headless: true,
@@ -206,6 +206,23 @@ jobs:
               path.reverse();
               return path.map(at => ({ x: at % width, y: Math.floor(at / width) }));
             };
+            const findReachableZoneTarget = (map, start, zoneId) => {
+              const zones = JSON.parse(readFileSync('public/data/overworld_zones.json', 'utf8')).zones;
+              const zone = zones.find(item => item.id === zoneId);
+              if (!zone) throw new Error('Missing bounds for destination zone ' + zoneId);
+              const { x, y, width, height } = zone.bounds;
+              let best = null;
+              for (let ty = y; ty < y + height; ty++) {
+                for (let tx = x; tx < x + width; tx++) {
+                  const path = findPath(map, start, { x: tx, y: ty });
+                  if (path && (!best || path.length < best.path.length)) {
+                    best = { target: { x: tx, y: ty }, path };
+                  }
+                }
+              }
+              if (!best) throw new Error('No collision-free path from ' + JSON.stringify(start) + ' into zone ' + zoneId);
+              return best.target;
+            };
             const walkPath = async (target, label) => {
               // Cache the large collision grid once. Only small player-position
               // objects cross the browser boundary during movement to avoid V8
@@ -284,7 +301,10 @@ jobs:
             ).catch(async () => { throw new Error('Returned to overworld but Route 2 zone did not resolve: ' + JSON.stringify(await getSnapshot())); });
             const route2North = await getSnapshot();
             if (route2North.zone !== 'MAP_ROUTE2') throw new Error('Expected to return to north Route 2, got zone ' + route2North.zone);
-            await walkPath({ x: 74, y: 82 }, 'Route 2 north → Pewter City');
+            const northMap = { ...route2North.map, collision: Array.from(route2North.map.collision) };
+            const pewterTarget = findReachableZoneTarget(northMap, route2North.pos, 'MAP_PEWTER_CITY');
+            console.log('PEWTER_ROUTE_TARGET=' + JSON.stringify(pewterTarget));
+            await walkPath(pewterTarget, 'Route 2 north → Pewter City');
             const routeFinish = await getSnapshot();
             if (routeFinish.zone !== 'MAP_PEWTER_CITY') {
               throw new Error('Full route did not finish in Pewter City; got ' + JSON.stringify({ map: routeFinish.map.id, zone: routeFinish.zone, pos: routeFinish.pos }));
