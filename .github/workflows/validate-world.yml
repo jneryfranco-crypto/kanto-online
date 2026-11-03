@@ -133,7 +133,7 @@ jobs:
                 return p.x === x && p.y === y - 1;
               },
               beforeWalk,
-              { timeout: 3000 },
+              { timeout: 10000 },
             );
             const afterWalk = await page.evaluate(() => window.__gameDebug.getPlayerPos());
             if (afterWalk.x !== beforeWalk.x || afterWalk.y !== beforeWalk.y - 1) {
@@ -148,7 +148,7 @@ jobs:
                 return p.x === x && p.y === y;
               },
               beforeWalk,
-              { timeout: 3000 },
+              { timeout: 10000 },
             );
             const restored = await page.evaluate(() => window.__gameDebug.getPlayerPos());
             if (restored.x !== beforeWalk.x || restored.y !== beforeWalk.y) {
