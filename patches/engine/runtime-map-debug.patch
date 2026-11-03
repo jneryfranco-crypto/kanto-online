@@ -1,0 +1,29 @@
+diff --git a/src/Game.ts b/src/Game.ts
+--- a/src/Game.ts
++++ b/src/Game.ts
+@@ -296,6 +296,25 @@
+         getInputState: () => ({
+           direction: this.input.getDirection(),
+           holding: this.input.isHoldingDirection(),
+           running: this.input.isRunning(),
+         }),
++        // Read-only runtime snapshot for end-to-end route validation.
++        getMapInfo: () => {
++          const map = this.mapManager.getActiveMap();
++          if (!map) return null;
++          return {
++            id: map.id,
++            mode: this.mapManager.getActiveMode(),
++            width: map.width,
++            height: map.height,
++            collision: Array.from(map.collisionGrid),
++            behavior: Array.from(map.behaviorGrid),
++            warps: map.warps.map(w => ({
++              x: w.x, y: w.y, destMap: w.destMap, destWarpId: w.destWarpId,
++            })),
++            zones: map.zones.map(z => ({
++              id: z.id, bounds: { ...z.bounds },
++            })),
++          };
++        },
+       };

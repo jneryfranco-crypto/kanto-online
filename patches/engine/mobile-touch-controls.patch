@@ -1,0 +1,132 @@
+diff --git a/src/core/Input.ts b/src/core/Input.ts
+index 0000000..0000000 100644
+--- a/src/core/Input.ts
++++ b/src/core/Input.ts
+@@ -1,6 +1,7 @@
+ import type { Direction } from '../types/game';
+ 
+ const DIRECTION_KEYS: Record<string, Direction> = {
++  // Keyboard and on-screen controls share the same input path.
+   ArrowUp: 'up', ArrowDown: 'down', ArrowLeft: 'left', ArrowRight: 'right',
+   w: 'up', s: 'down', a: 'left', d: 'right',
+   W: 'up', S: 'down', A: 'left', D: 'right',
+@@ -10,7 +11,8 @@ export class Input {
+   private justPressedKeys = new Set<string>();
+   private justReleasedKeys = new Set<string>();
+   private callbacks = new Map<string, Array<() => void>>();
++  private touchKeys = new Set<string>();
+ 
+   constructor() {
+     window.addEventListener('keydown', (e) => {
+@@ -22,6 +24,7 @@ export class Input {
+       this.keys.delete(e.key);
+       this.justReleasedKeys.add(e.key);
+     });
++    this.createTouchControls();
+   }
+ 
+   isDown(key: string): boolean {
+@@ -36,7 +39,7 @@ export class Input {
+ 
+   getDirection(): Direction | null {
+     for (const [key, dir] of Object.entries(DIRECTION_KEYS)) {
+-      if (this.keys.has(key)) return dir;
++      if (this.keys.has(key) || this.touchKeys.has(key)) return dir;
+     }
+     return null;
+   }
+ 
+   isRunning(): boolean {
+-    return this.keys.has('Shift');
++    return this.keys.has('Shift') || this.touchKeys.has('Shift');
+   }
+@@ -44,7 +47,7 @@ export class Input {
+   isHoldingDirection(): boolean {
+     for (const key of Object.keys(DIRECTION_KEYS)) {
+-      if (this.keys.has(key)) return true;
++      if (this.keys.has(key) || this.touchKeys.has(key)) return true;
+     }
+     return false;
+   }
++
++  /** Build a touch HUD for phones/tablets. Desktop keyboard remains unchanged. */
++  private createTouchControls(): void {
++    if (document.getElementById('kanto-touch-controls')) return;
++    const root = document.createElement('div');
++    root.id = 'kanto-touch-controls';
++    root.setAttribute('aria-label', 'Controles do jogo');
++    root.innerHTML = `
++      <div class="kanto-touch-left">
++        <div class="kanto-joystick" role="group" aria-label="Direcional">
++          <div class="kanto-joystick-knob"></div>
++        </div>
++      </div>
++      <div class="kanto-touch-right">
++        <button class="kanto-touch-key kanto-key-b" data-key="Escape" aria-label="B">B</button>
++        <button class="kanto-touch-key kanto-key-a" data-key="Enter" aria-label="A">A</button>
++        <div class="kanto-touch-utility">
++          <button class="kanto-touch-small" data-key="Shift" aria-label="Correr">RUN</button>
++          <button class="kanto-touch-small" data-key="e" aria-label="Interagir">E</button>
++        </div>
++      </div>`;
++    document.body.appendChild(root);
++
++    const joystick = root.querySelector<HTMLElement>('.kanto-joystick')!;
++    const knob = root.querySelector<HTMLElement>('.kanto-joystick-knob')!;
++    let pointerId: number | null = null;
++    const release = () => {
++      this.touchKeys.delete('ArrowUp');
++      this.touchKeys.delete('ArrowDown');
++      this.touchKeys.delete('ArrowLeft');
++      this.touchKeys.delete('ArrowRight');
++      pointerId = null;
++      knob.style.transform = 'translate(-50%, -50%)';
++    };
++    joystick.addEventListener('pointerdown', (event) => {
++      event.preventDefault();
++      pointerId = event.pointerId;
++      joystick.setPointerCapture(pointerId);
++      updateDirection(event);
++    });
++    joystick.addEventListener('pointermove', (event) => {
++      if (pointerId === event.pointerId) updateDirection(event);
++    });
++    joystick.addEventListener('pointerup', release);
++    joystick.addEventListener('pointercancel', release);
++    joystick.addEventListener('lostpointercapture', release);
++
++    const updateDirection = (event: PointerEvent) => {
++      const rect = joystick.getBoundingClientRect();
++      const dx = event.clientX - (rect.left + rect.width / 2);
++      const dy = event.clientY - (rect.top + rect.height / 2);
++      const limit = rect.width * 0.28;
++      const length = Math.hypot(dx, dy) || 1;
++      const scale = Math.min(1, limit / length);
++      knob.style.transform = `translate(calc(-50% + ${dx * scale}px), calc(-50% + ${dy * scale}px))`;
++      this.touchKeys.delete('ArrowUp');
++      this.touchKeys.delete('ArrowDown');
++      this.touchKeys.delete('ArrowLeft');
++      this.touchKeys.delete('ArrowRight');
++      if (Math.max(Math.abs(dx), Math.abs(dy)) > rect.width * 0.12) {
++        if (Math.abs(dx) > Math.abs(dy)) this.touchKeys.add(dx < 0 ? 'ArrowLeft' : 'ArrowRight');
++        else this.touchKeys.add(dy < 0 ? 'ArrowUp' : 'ArrowDown');
++      }
++    };
++
++    root.querySelectorAll<HTMLButtonElement>('[data-key]').forEach(button => {
++      const key = button.dataset.key!;
++      const down = (event: PointerEvent) => {
++        event.preventDefault();
++        button.setPointerCapture(event.pointerId);
++        this.touchKeys.add(key);
++      };
++      const up = () => this.touchKeys.delete(key);
++      button.addEventListener('pointerdown', down);
++      button.addEventListener('pointerup', up);
++      button.addEventListener('pointercancel', up);
++      button.addEventListener('lostpointercapture', up);
++      button.addEventListener('contextmenu', event => event.preventDefault());
++    });
++  }
+ 
+   onKeyDown(key: string, callback: () => void): void {

@@ -1,0 +1,389 @@
+name: Validate FireRed map engine
+
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - ".gitmodules"
+      - "README_MAPA.md"
+      - "setup-map.sh"
+      - "setup-map.ps1"
+      - "extract-map.sh"
+      - "extract-field-effects.py"
+      - "validate-runtime-assets.py"
+      - "validate-kanto-route.py"
+      - "patches/**"
+      - ".github/workflows/validate-world.yml"
+      - "engine"
+      - "decomp"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  extract-and-validate:
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Checkout repository and pinned submodules
+        uses: actions/checkout@v4
+        with:
+          submodules: recursive
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+          cache-dependency-path: engine/package-lock.json
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Link the pinned FireRed decompilation
+        run: ln -s ../decomp engine/decomp
+
+      - name: Install dependencies
+        working-directory: engine
+        run: |
+          npm ci
+          python -m pip install -r scripts/requirements.txt
+
+      - name: Extract maps and run all validators in dependency order
+        run: bash ./extract-map.sh
+
+      - name: Type-check and production build
+        working-directory: engine
+        run: |
+          npm run typecheck
+          npm run build
+
+      - name: Install Chromium for visual smoke test
+        working-directory: engine
+        run: npx playwright install --with-deps chromium
+
+      - name: Launch game, diagnose initialization and capture Kanto locations
+        working-directory: engine
+        run: |
+          npm run dev -- --host 127.0.0.1 > /tmp/kanto-vite.log 2>&1 &
+          for i in $(seq 1 30); do
+            if curl --fail --silent http://127.0.0.1:3000/ > /dev/null; then break; fi
+            sleep 2
+          done
+          curl --fail --silent http://127.0.0.1:3000/ > /dev/null
+          node --input-type=module <<'NODE'
+          import { chromium } from 'playwright';
+          import { mkdirSync, readFileSync } from 'node:fs';
+
+          const browser = await chromium.launch({
+            headless: true,
+            args: ['--use-gl=angle', '--use-angle=swiftshader', '--enable-unsafe-swiftshader', '--enable-webgl', '--ignore-gpu-blocklist'],
+          });
+          const page = await browser.newPage({ viewport: { width: 960, height: 640 } });
+          const diagnostics = [];
+          page.on('console', msg => diagnostics.push('[console:' + msg.type() + '] ' + msg.text()));
+          page.on('pageerror', err => diagnostics.push('[pageerror] ' + err.stack));
+          page.on('requestfailed', req => diagnostics.push('[requestfailed] ' + req.url() + ' — ' + req.failure()?.errorText));
+          try {
+            await page.goto('http://127.0.0.1:3000/', { waitUntil: 'domcontentloaded' });
+            await page.waitForFunction(() => !!window.__gameDebug, null, { timeout: 30000 }).catch(() => {});
+            await page.waitForTimeout(1500);
+            mkdirSync('tmp/screenshots', { recursive: true });
+            const initial = await page.evaluate(() => ({
+              debugApi: !!window.__gameDebug,
+              canvasCount: document.querySelectorAll('#game-container canvas').length,
+              canvas: [...document.querySelectorAll('#game-container canvas')].map(c => ({ width: c.width, height: c.height })),
+              state: window.__gameDebug?.getState?.() ?? null,
+              player: window.__gameDebug?.getPlayerPos?.() ?? null,
+              zone: window.__gameDebug?.getZone?.()?.name ?? null,
+            }));
+            await page.screenshot({ path: 'tmp/screenshots/initial_spawn.png' });
+            console.log('INITIAL_BROWSER_STATE=' + JSON.stringify(initial));
+            if (!initial.debugApi || initial.canvasCount === 0 || initial.state !== 'playing') {
+              console.error('GAME_INITIALIZATION_FAILED; browser diagnostics follow:');
+              diagnostics.forEach(line => console.error(line));
+              throw new Error('Game did not finish initialization; debug API or rendered canvas is missing.');
+            }
+
+            // Exercise real keyboard movement and collision, without using debug teleport.
+            const beforeWalk = await page.evaluate(() => {
+              window.__testKeyboardEvents = [];
+              window.addEventListener('keydown', e => window.__testKeyboardEvents.push(e.key), true);
+              return window.__gameDebug.getPlayerPos();
+            });
+            // Give the game canvas keyboard focus and hold the key long enough for the game loop to poll it.
+            await page.locator('#game-container canvas').click({ position: { x: 480, y: 320 } });
+            await page.keyboard.down('ArrowUp');
+            await page.waitForTimeout(200);
+            const inputWhileHeld = await page.evaluate(() => ({
+              input: window.__gameDebug.getInputState(),
+              events: window.__testKeyboardEvents,
+              player: window.__gameDebug.getPlayerPos(),
+            }));
+            await page.keyboard.up('ArrowUp');
+            if (inputWhileHeld.input.direction !== 'up' || !inputWhileHeld.input.holding || !inputWhileHeld.events.includes('ArrowUp')) {
+              throw new Error('Keyboard input did not reach game: ' + JSON.stringify(inputWhileHeld));
+            }
+            // A walk animation advances in 12 game frames; allow slower CI frame rates.
+            await page.waitForFunction(
+              ({ x, y }) => {
+                const p = window.__gameDebug.getPlayerPos();
+                return p.x === x && p.y === y - 1;
+              },
+              beforeWalk,
+              { timeout: 10000 },
+            );
+            const afterWalk = await page.evaluate(() => window.__gameDebug.getPlayerPos());
+            if (afterWalk.x !== beforeWalk.x || afterWalk.y !== beforeWalk.y - 1) {
+              throw new Error('Real movement failed: expected one tile north, got ' + JSON.stringify(afterWalk));
+            }
+            await page.keyboard.down('ArrowDown');
+            await page.waitForTimeout(200);
+            await page.keyboard.up('ArrowDown');
+            await page.waitForFunction(
+              ({ x, y }) => {
+                const p = window.__gameDebug.getPlayerPos();
+                return p.x === x && p.y === y;
+              },
+              beforeWalk,
+              { timeout: 10000 },
+            );
+            const restored = await page.evaluate(() => window.__gameDebug.getPlayerPos());
+            if (restored.x !== beforeWalk.x || restored.y !== beforeWalk.y) {
+              throw new Error('Return movement failed: expected original spawn, got ' + JSON.stringify(restored));
+            }
+            await page.keyboard.down('ArrowRight');
+            await page.waitForTimeout(200);
+            await page.keyboard.up('ArrowRight');
+            await page.waitForTimeout(500);
+            const blocked = await page.evaluate(() => window.__gameDebug.getPlayerPos());
+            if (blocked.x !== beforeWalk.x || blocked.y !== beforeWalk.y) {
+              throw new Error('Collision failed: player moved into blocked tile, got ' + JSON.stringify(blocked));
+            }
+            console.log('PLAYER_MOVEMENT_AND_COLLISION=PASS ' + JSON.stringify({ beforeWalk, afterWalk, restored, blocked }));
+
+            // Walk the complete FireRed route with real keyboard input. No debug teleport is used here.
+            const sleep = ms => new Promise(resolve => setTimeout(resolve, ms));
+            const directions = [
+              { key: 'ArrowUp', dx: 0, dy: -1 },
+              { key: 'ArrowDown', dx: 0, dy: 1 },
+              { key: 'ArrowLeft', dx: -1, dy: 0 },
+              { key: 'ArrowRight', dx: 1, dy: 0 },
+            ];
+            const getSnapshot = () => page.evaluate(() => ({
+              pos: window.__gameDebug.getPlayerPos(),
+              zone: window.__gameDebug.getZone()?.id ?? null,
+              map: window.__gameDebug.getMapInfo(),
+              state: window.__gameDebug.getState(),
+            }));
+            const findPath = (map, start, target) => {
+              const { width, height, collision } = map;
+              const key = (x, y) => y * width + x;
+              const startKey = key(start.x, start.y);
+              const targetKey = key(target.x, target.y);
+              const prev = new Int32Array(width * height).fill(-1);
+              const queue = new Int32Array(width * height);
+              let head = 0, tail = 0;
+              queue[tail++] = startKey;
+              prev[startKey] = startKey;
+              while (head < tail && prev[targetKey] === -1) {
+                const current = queue[head++];
+                const x = current % width, y = Math.floor(current / width);
+                for (const d of directions) {
+                  const nx = x + d.dx, ny = y + d.dy;
+                  if (nx < 0 || ny < 0 || nx >= width || ny >= height) continue;
+                  const next = key(nx, ny);
+                  if (prev[next] !== -1 || collision[next] !== 0) continue;
+                  prev[next] = current;
+                  queue[tail++] = next;
+                }
+              }
+              if (prev[targetKey] === -1) return null;
+              const path = [];
+              for (let at = targetKey; at !== startKey; at = prev[at]) path.push(at);
+              path.reverse();
+              return path.map(at => ({ x: at % width, y: Math.floor(at / width) }));
+            };
+            const findReachableZoneTarget = (map, start, zoneId) => {
+              const zones = JSON.parse(readFileSync('public/data/overworld_zones.json', 'utf8')).zones;
+              const zone = zones.find(item => item.id === zoneId);
+              if (!zone) throw new Error('Missing bounds for destination zone ' + zoneId);
+              const { x, y, width, height } = zone.bounds;
+              let best = null;
+              for (let ty = y; ty < y + height; ty++) {
+                for (let tx = x; tx < x + width; tx++) {
+                  const path = findPath(map, start, { x: tx, y: ty });
+                  if (path && (!best || path.length < best.path.length)) {
+                    best = { target: { x: tx, y: ty }, path };
+                  }
+                }
+              }
+              if (!best) throw new Error('No collision-free path from ' + JSON.stringify(start) + ' into zone ' + zoneId);
+              return best.target;
+            };
+            const walkPath = async (target, label) => {
+              // Cache the large collision grid once. Only small player-position
+              // objects cross the browser boundary during movement to avoid V8
+              // repeatedly allocating copies of the entire world map.
+              let snap = await getSnapshot();
+              const mapId = snap.map.id;
+              const map = { ...snap.map, collision: Array.from(snap.map.collision) };
+              let steps = 0;
+              while (snap.pos.x !== target.x || snap.pos.y !== target.y) {
+                if (++steps > 1200) {
+                  throw new Error(label + ': route did not converge; current=' + JSON.stringify(snap.pos) + ' target=' + JSON.stringify(target) + ' map=' + mapId);
+                }
+                const path = findPath(map, snap.pos, target);
+                if (!path?.length) throw new Error(label + ': no collision-free path from ' + JSON.stringify(snap.pos) + ' to ' + JSON.stringify(target) + ' on ' + mapId);
+                const next = path[0];
+                const dx = next.x - snap.pos.x, dy = next.y - snap.pos.y;
+                const dir = directions.find(d => d.dx === dx && d.dy === dy);
+                if (!dir) throw new Error(label + ': non-adjacent route step');
+                await page.keyboard.down(dir.key);
+                await page.waitForTimeout(200);
+                await page.keyboard.up(dir.key);
+                await page.waitForTimeout(300);
+                const pos = await page.evaluate(() => window.__gameDebug.getPlayerPos());
+                if (pos.x === snap.pos.x && pos.y === snap.pos.y) {
+                  await page.waitForTimeout(250);
+                }
+                snap.pos = await page.evaluate(() => window.__gameDebug.getPlayerPos());
+                if (steps % 25 === 0) console.log('ROUTE_PROGRESS=' + label + ' ' + JSON.stringify({ steps, pos: snap.pos, target }));
+              }
+              console.log('ROUTE_WALK=' + label + ' ' + JSON.stringify({ target, final: snap.pos, map: mapId, zone: snap.zone, steps }));
+            };
+            const moveToWarp = async (destMap, label) => {
+              let snap = await getSnapshot();
+              const warp = snap.map.warps.find(w => w.destMap === destMap);
+              if (!warp) throw new Error(label + ': door warp to ' + destMap + ' not found on ' + snap.map.id);
+              const approach = { x: warp.x, y: warp.y + 1 };
+              await walkPath(approach, label + ' approach');
+              await page.keyboard.down('ArrowUp');
+              await page.waitForFunction(
+                oldMap => window.__gameDebug.getMapInfo()?.id !== oldMap && window.__gameDebug.getState() === 'playing',
+                snap.map.id,
+                { timeout: 30000 },
+              ).catch(async () => { throw new Error(label + ': door transition did not load destination; snapshot=' + JSON.stringify(await getSnapshot())); });
+              await page.keyboard.up('ArrowUp');
+              await page.waitForTimeout(300);
+              const arrived = await getSnapshot();
+              if (arrived.map.id !== destMap) throw new Error(label + ': expected ' + destMap + ', arrived at ' + arrived.map.id);
+              console.log('ROUTE_WARP=' + label + ' ' + JSON.stringify({ map: arrived.map.id, pos: arrived.pos, zone: arrived.zone }));
+            };
+
+            const routeStart = await getSnapshot();
+            if (routeStart.map.mode !== 'overworld' || routeStart.zone !== 'MAP_PALLET_TOWN') {
+              throw new Error('Route test must begin at Pallet Town spawn; got ' + JSON.stringify({ map: routeStart.map.id, zone: routeStart.zone, pos: routeStart.pos }));
+            }
+            const palletToForestGate = routeStart.map.warps.find(w => w.destMap === 'MAP_ROUTE2_VIRIDIAN_FOREST_SOUTH_ENTRANCE');
+            if (!palletToForestGate) throw new Error('Overworld warp to south Viridian Forest gatehouse is missing');
+            await walkPath({ x: palletToForestGate.x, y: palletToForestGate.y + 1 }, 'Pallet Town → Route 1 → Viridian City → Route 2');
+            await moveToWarp('MAP_ROUTE2_VIRIDIAN_FOREST_SOUTH_ENTRANCE', 'Enter south gatehouse');
+            await moveToWarp('MAP_VIRIDIAN_FOREST', 'Enter Viridian Forest');
+            await moveToWarp('MAP_ROUTE2_VIRIDIAN_FOREST_NORTH_ENTRANCE', 'Exit Viridian Forest north');
+            const northGate = await getSnapshot();
+            const route2Exit = northGate.map.warps.find(w => w.destMap === 'MAP_ROUTE2');
+            if (!route2Exit) throw new Error('North gatehouse door back to Route 2 is missing');
+            await walkPath({ x: route2Exit.x, y: route2Exit.y + 1 }, 'Cross north gatehouse');
+            await page.keyboard.down('ArrowUp');
+            await page.waitForFunction(
+              oldMap => window.__gameDebug.getMapInfo()?.id === 'overworld' && window.__gameDebug.getState() === 'playing',
+              northGate.map.id,
+              { timeout: 30000 },
+            ).catch(async () => { throw new Error('Could not return to Route 2 from north gatehouse: ' + JSON.stringify(await getSnapshot())); });
+            await page.keyboard.up('ArrowUp');
+            await page.waitForFunction(
+              () => window.__gameDebug.getZone()?.id === 'MAP_ROUTE2',
+              null,
+              { timeout: 10000 },
+            ).catch(async () => { throw new Error('Returned to overworld but Route 2 zone did not resolve: ' + JSON.stringify(await getSnapshot())); });
+            const route2North = await getSnapshot();
+            if (route2North.zone !== 'MAP_ROUTE2') throw new Error('Expected to return to north Route 2, got zone ' + route2North.zone);
+            const northMap = { ...route2North.map, collision: Array.from(route2North.map.collision) };
+            const pewterTarget = findReachableZoneTarget(northMap, route2North.pos, 'MAP_PEWTER_CITY');
+            console.log('PEWTER_ROUTE_TARGET=' + JSON.stringify(pewterTarget));
+            await walkPath(pewterTarget, 'Route 2 north → Pewter City');
+            const routeFinish = await getSnapshot();
+            if (routeFinish.zone !== 'MAP_PEWTER_CITY') {
+              throw new Error('Full route did not finish in Pewter City; got ' + JSON.stringify({ map: routeFinish.map.id, zone: routeFinish.zone, pos: routeFinish.pos }));
+            }
+            await page.screenshot({ path: 'tmp/screenshots/full_route_pewter.png' });
+            console.log('FULL_CONTINUOUS_ROUTE=PASS ' + JSON.stringify({ start: routeStart, finish: { map: routeFinish.map.id, zone: routeFinish.zone, pos: routeFinish.pos } }));
+
+            const locations = [
+              ['pallet_town', 74, 272, 'MAP_PALLET_TOWN'],
+              ['viridian_city', 74, 202, 'MAP_VIRIDIAN_CITY'],
+              ['pewter_city', 74, 82, 'MAP_PEWTER_CITY'],
+              ['cerulean_city', 290, 62, 'MAP_CERULEAN_CITY'],
+              ['vermilion_city', 290, 222, 'MAP_VERMILION_CITY'],
+              ['lavender_town', 398, 142, 'MAP_LAVENDER_TOWN'],
+              ['celadon_city', 212, 142, 'MAP_CELADON_CITY'],
+              ['fuchsia_city', 218, 322, 'MAP_FUCHSIA_CITY'],
+            ];
+            for (const [name, x, y, expectedZone] of locations) {
+              await page.evaluate(([tx, ty]) => window.__gameDebug.teleport(tx, ty), [x, y]);
+              await page.waitForTimeout(500);
+              await page.screenshot({ path: 'tmp/screenshots/' + name + '.png' });
+              const result = await page.evaluate(() => ({
+                player: window.__gameDebug.getPlayerPos(),
+                zone: window.__gameDebug.getZone()?.name ?? null,
+                zoneId: window.__gameDebug.getZone()?.id ?? null,
+              }));
+              console.log('CAPTURED=' + name + ' ' + JSON.stringify(result));
+              if (result.zoneId !== expectedZone) {
+                throw new Error(name + ': expected zone ' + expectedZone + ', got ' + result.zoneId);
+              }
+            }
+            const fatalDiagnostics = diagnostics.filter(line =>
+              line.startsWith('[pageerror]') ||
+              line.startsWith('[console:error]') ||
+              (line.startsWith('[requestfailed]') && !line.includes('/sprites/landing_dust.png'))
+            );
+            if (fatalDiagnostics.length) {
+              console.error('FATAL_BROWSER_DIAGNOSTICS=' + JSON.stringify(fatalDiagnostics));
+              throw new Error('Browser reported runtime errors or failed required asset requests.');
+            }
+            console.log('BROWSER_DIAGNOSTICS=' + JSON.stringify(diagnostics));
+          } finally {
+            await browser.close();
+          }
+          NODE
+
+      - name: Reject screenshots with large blank rendering regions
+        working-directory: engine
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+          from PIL import Image
+          import numpy as np
+
+          screenshots = sorted(Path("tmp/screenshots").glob("*.png"))
+          if len(screenshots) < 9:
+              raise SystemExit(f"Expected 9 screenshots, found {len(screenshots)}")
+          failures = []
+          for path in screenshots:
+              with Image.open(path) as image:
+                  pixels = np.asarray(image.convert("RGB"))
+                  ratio = float(np.all(pixels == 0, axis=2).mean())
+                  print(f"{path.name}: {ratio:.2%} pure-black pixels")
+                  if ratio > 0.05:
+                      failures.append(f"{path.name}: {ratio:.2%} pure-black pixels")
+          if failures:
+              raise SystemExit("Blank map regions detected: " + "; ".join(failures))
+          print("PASS: all town screenshots contain rendered map content")
+          PY
+
+      - name: Upload generated map and visual evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: kanto-fire-red-validation
+          path: |
+            engine/public/
+            engine/dist/
+            engine/tmp/screenshots/
+            /tmp/kanto-vite.log
+          if-no-files-found: warn
+          retention-days: 7
