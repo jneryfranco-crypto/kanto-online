@@ -21,5 +21,9 @@ do
 done
 
 echo
+echo "===== Export FireRed field-effect sprites ====="
+python3 "$ROOT/extract-field-effects.py"
+
+echo
 echo "===== Full validation suite ====="
 npm test
