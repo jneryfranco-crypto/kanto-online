@@ -214,19 +214,16 @@ jobs:
                 const dx = tile.x - snap.pos.x, dy = tile.y - snap.pos.y;
                 const dir = directions.find(d => d.dx === dx && d.dy === dy);
                 if (!dir) throw new Error(label + ': non-adjacent route step');
-                await page.keyboard.down('Shift');
                 await page.keyboard.down(dir.key);
                 await page.waitForFunction(
                   ({ x, y }) => { const p = window.__gameDebug.getPlayerPos(); return p.x === x && p.y === y; },
                   tile,
-                  { timeout: 4000 },
+                  { timeout: 4000, polling: 10 },
                 ).catch(async () => {
                   await page.keyboard.up(dir.key);
-                  await page.keyboard.up('Shift');
                   throw new Error(label + ': movement stalled at ' + JSON.stringify(tile) + '; current=' + JSON.stringify(await page.evaluate(() => window.__gameDebug.getPlayerPos())));
                 });
                 await page.keyboard.up(dir.key);
-                await page.keyboard.up('Shift');
                 snap = await getSnapshot();
               }
               console.log('ROUTE_WALK=' + label + ' ' + JSON.stringify({ target, final: snap.pos, map: snap.map.id, zone: snap.zone, steps: path.length }));
