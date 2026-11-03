@@ -1,7 +1,10 @@
 diff --git a/src/Game.ts b/src/Game.ts
 --- a/src/Game.ts
 +++ b/src/Game.ts
-@@ -270,6 +270,25 @@ export class Game {
+@@ -296,6 +296,24 @@
+         getInputState: () => ({
+           direction: this.input.getDirection(),
+           holding: this.input.isHoldingDirection(),
            running: this.input.isRunning(),
          }),
 +        // Read-only runtime snapshot for end-to-end route validation.
