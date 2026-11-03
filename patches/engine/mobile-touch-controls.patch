@@ -10,7 +10,7 @@ index 0000000..0000000 100644
    ArrowUp: 'up', ArrowDown: 'down', ArrowLeft: 'left', ArrowRight: 'right',
    w: 'up', s: 'down', a: 'left', d: 'right',
    W: 'up', S: 'down', A: 'left', D: 'right',
-@@ -10,6 +11,7 @@ export class Input {
+@@ -10,7 +11,8 @@ export class Input {
    private justPressedKeys = new Set<string>();
    private justReleasedKeys = new Set<string>();
    private callbacks = new Map<string, Array<() => void>>();
