@@ -214,18 +214,29 @@ jobs:
                 const dx = tile.x - snap.pos.x, dy = tile.y - snap.pos.y;
                 const dir = directions.find(d => d.dx === dx && d.dy === dy);
                 if (!dir) throw new Error(label + ': non-adjacent route step');
-                // Tap briefly, then release immediately. Waiting for the destination while
-                // holding the key can trigger repeated steps and skip over the target tile.
+                // Hold until the engine reports the first completed tile, then release
+                // from inside the browser polling callback before another game tick can
+                // start a second step. This synchronizes to the engine, not wall-clock ms.
+                const from = { x: snap.pos.x, y: snap.pos.y };
                 await page.keyboard.down(dir.key);
-                await sleep(50);
-                await page.keyboard.up(dir.key);
                 await page.waitForFunction(
-                  ({ x, y }) => { const p = window.__gameDebug.getPlayerPos(); return p.x === x && p.y === y; },
-                  tile,
-                  { timeout: 4000, polling: 10 },
+                  ({ from, key }) => {
+                    const p = window.__gameDebug.getPlayerPos();
+                    if (p.x === from.x && p.y === from.y) return false;
+                    window.dispatchEvent(new KeyboardEvent('keyup', { key, bubbles: true }));
+                    return true;
+                  },
+                  { from, key: dir.key },
+                  { timeout: 4000, polling: 1 },
                 ).catch(async () => {
-                  throw new Error(label + ': expected tile ' + JSON.stringify(tile) + ' but current=' + JSON.stringify(await page.evaluate(() => window.__gameDebug.getPlayerPos())));
+                  await page.keyboard.up(dir.key);
+                  throw new Error(label + ': no completed tile after pressing ' + dir.key + '; expected ' + JSON.stringify(tile) + ' current=' + JSON.stringify(await page.evaluate(() => window.__gameDebug.getPlayerPos())));
                 });
+                await page.keyboard.up(dir.key);
+                const arrived = await page.evaluate(() => window.__gameDebug.getPlayerPos());
+                if (arrived.x !== tile.x || arrived.y !== tile.y) {
+                  throw new Error(label + ': expected tile ' + JSON.stringify(tile) + ' but current=' + JSON.stringify(arrived));
+                }
                 snap = await getSnapshot();
               }
               console.log('ROUTE_WALK=' + label + ' ' + JSON.stringify({ target, final: snap.pos, map: snap.map.id, zone: snap.zone, steps: path.length }));
