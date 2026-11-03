@@ -9,6 +9,7 @@ on:
       - "setup-map.sh"
       - "setup-map.ps1"
       - "extract-map.sh"
+      - "extract-field-effects.py"
       - ".github/workflows/validate-world.yml"
       - "engine"
       - "decomp"
@@ -69,7 +70,7 @@ jobs:
             sleep 2
           done
           curl --fail http://127.0.0.1:3000/
-          KANTO_URL=http://127.0.0.1:3000 node scripts/tests/browser_test.mjs console
+          KANTO_URL=http://127.0.0.1:3000 node scripts/tests/browser_test.mjs test-rendering
 
       - name: Upload generated map and visual evidence
         if: always()
