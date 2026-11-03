@@ -41,6 +41,7 @@ python3 "$ROOT/extract-field-effects.py"
 echo
 echo "===== Verify required runtime assets ====="
 python3 "$ROOT/validate-runtime-assets.py"
+python3 "$ROOT/validate-kanto-route.py"
 
 echo
 echo "===== Full validation suite ====="
