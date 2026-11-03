@@ -207,32 +207,49 @@ jobs:
               return path.map(at => ({ x: at % width, y: Math.floor(at / width) }));
             };
             const walkPath = async (target, label) => {
-              // The controller intentionally starts the next tile on the same game
-              // tick that a tile finishes. Browser polling can therefore observe one
-              // additional tile before keyup is processed. Walk in short bursts and
-              // re-plan from the authoritative tile position instead of assuming a
-              // keyup can interrupt an in-progress animation.
+              // Follow straight sections in one held input instead of issuing one
+              // browser command per tile. This keeps the end-to-end route test bounded
+              // while still observing the real player position and collision grid.
               let snap = await getSnapshot();
-              let iterations = 0;
+              let segments = 0;
               while (snap.pos.x !== target.x || snap.pos.y !== target.y) {
-                if (++iterations > 1200) {
-                  throw new Error(label + ': route did not converge; current=' + JSON.stringify(snap.pos) + ' target=' + JSON.stringify(target));
+                if (++segments > 200) {
+                  throw new Error(label + ': route did not converge; current=' + JSON.stringify(snap.pos) + ' target=' + JSON.stringify(target) + ' map=' + snap.map.id);
                 }
                 const path = findPath(snap.map, snap.pos, target);
                 if (!path?.length) throw new Error(label + ': no collision-free path from ' + JSON.stringify(snap.pos) + ' to ' + JSON.stringify(target) + ' on ' + snap.map.id);
-                const next = path[0];
-                const dx = next.x - snap.pos.x, dy = next.y - snap.pos.y;
+                const first = path[0];
+                const dx = first.x - snap.pos.x, dy = first.y - snap.pos.y;
                 const dir = directions.find(d => d.dx === dx && d.dy === dy);
                 if (!dir) throw new Error(label + ': non-adjacent route step');
+                let end = first;
+                let tiles = 1;
+                for (let i = 1; i < path.length; i++) {
+                  const step = path[i];
+                  if (step.x - end.x !== dir.dx || step.y - end.y !== dir.dy) break;
+                  end = step;
+                  tiles++;
+                }
                 await page.keyboard.down(dir.key);
-                // A short burst advances at least one tile. Release, allow any
-                // already-started animation to finish, then calculate the next path.
-                await page.waitForTimeout(210);
-                await page.keyboard.up(dir.key);
-                await page.waitForTimeout(260);
+                try {
+                  await page.waitForFunction(
+                    ({ x, y }) => {
+                      const p = window.__gameDebug.getPlayerPos();
+                      return p.x === x && p.y === y;
+                    },
+                    end,
+                    { timeout: Math.min(30000, tiles * 1200 + 3000) },
+                  );
+                } catch {
+                  throw new Error(label + ': could not complete straight segment of ' + tiles + ' tiles toward ' + JSON.stringify(end) + '; current=' + JSON.stringify(await getSnapshot()));
+                } finally {
+                  await page.keyboard.up(dir.key);
+                }
+                await page.waitForTimeout(250);
                 snap = await getSnapshot();
+                if (segments % 10 === 0) console.log('ROUTE_PROGRESS=' + label + ' ' + JSON.stringify({ segments, pos: snap.pos, target }));
               }
-              console.log('ROUTE_WALK=' + label + ' ' + JSON.stringify({ target, final: snap.pos, map: snap.map.id, zone: snap.zone, bursts: iterations }));
+              console.log('ROUTE_WALK=' + label + ' ' + JSON.stringify({ target, final: snap.pos, map: snap.map.id, zone: snap.zone, segments }));
             };
             const moveToWarp = async (destMap, label) => {
               let snap = await getSnapshot();
