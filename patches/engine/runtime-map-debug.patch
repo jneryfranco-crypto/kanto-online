@@ -1,7 +1,7 @@
 diff --git a/src/Game.ts b/src/Game.ts
 --- a/src/Game.ts
 +++ b/src/Game.ts
-@@ -296,6 +296,24 @@
+@@ -296,6 +296,25 @@
          getInputState: () => ({
            direction: this.input.getDirection(),
            holding: this.input.isHoldingDirection(),
