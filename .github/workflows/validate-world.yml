@@ -109,9 +109,9 @@ jobs:
 
             // Exercise real keyboard movement and collision, without using debug teleport.
             const beforeWalk = await page.evaluate(() => window.__gameDebug.getPlayerPos());
-            await page.keyboard.down('ArrowUp');
-            await page.waitForTimeout(100);
-            await page.keyboard.up('ArrowUp');
+            // Give the game canvas keyboard focus before sending real browser input.
+            await page.locator('#game-container canvas').click({ position: { x: 480, y: 320 } });
+            await page.keyboard.press('ArrowUp');
             // A walk animation advances in 12 game frames; allow slower CI frame rates.
             await page.waitForFunction(
               ({ x, y }) => {
@@ -125,9 +125,7 @@ jobs:
             if (afterWalk.x !== beforeWalk.x || afterWalk.y !== beforeWalk.y - 1) {
               throw new Error('Real movement failed: expected one tile north, got ' + JSON.stringify(afterWalk));
             }
-            await page.keyboard.down('ArrowDown');
-            await page.waitForTimeout(100);
-            await page.keyboard.up('ArrowDown');
+            await page.keyboard.press('ArrowDown');
             await page.waitForFunction(
               ({ x, y }) => {
                 const p = window.__gameDebug.getPlayerPos();
@@ -140,9 +138,7 @@ jobs:
             if (restored.x !== beforeWalk.x || restored.y !== beforeWalk.y) {
               throw new Error('Return movement failed: expected original spawn, got ' + JSON.stringify(restored));
             }
-            await page.keyboard.down('ArrowRight');
-            await page.waitForTimeout(100);
-            await page.keyboard.up('ArrowRight');
+            await page.keyboard.press('ArrowRight');
             await page.waitForTimeout(500);
             const blocked = await page.evaluate(() => window.__gameDebug.getPlayerPos());
             if (blocked.x !== beforeWalk.x || blocked.y !== beforeWalk.y) {
