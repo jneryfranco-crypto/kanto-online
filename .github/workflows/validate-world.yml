@@ -10,6 +10,8 @@ on:
       - "setup-map.ps1"
       - "extract-map.sh"
       - "extract-field-effects.py"
+      - "validate-runtime-assets.py"
+      - "patches/**"
       - ".github/workflows/validate-world.yml"
       - "engine"
       - "decomp"
