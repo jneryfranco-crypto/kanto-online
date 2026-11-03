@@ -67,6 +67,7 @@ def main() -> int:
         else:
             tileset_refs = sorted(overworld.get("tilesets", []), key=lambda item: item["firstgid"])
             atlas_cache = {}
+            tileset_cache = {}
             used_gids = sorted({int(gid) for gid in bottom_layer.get("data", []) if int(gid) > 0})
             for gid in used_gids:
                 candidates = [ref for ref in tileset_refs if int(ref["firstgid"]) <= gid]
@@ -75,7 +76,9 @@ def main() -> int:
                     continue
                 ref = candidates[-1]
                 source = ref["source"]
-                tsj = read_json(f"tilesets/{source}")
+                if source not in tileset_cache:
+                    tileset_cache[source] = read_json(f"tilesets/{source}")
+                tsj = tileset_cache[source]
                 if tsj is None:
                     continue
                 local_id = gid - int(ref["firstgid"])
