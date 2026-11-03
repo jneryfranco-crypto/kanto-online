@@ -42,7 +42,7 @@ bash ./setup-map.sh
 .\setup-map.ps1
 ```
 
-A extração é executada por `extract-map.sh`. Ela chama os 12 exportadores da engine na ordem correta: layouts primeiro (necessários para descobrir os pares de tilesets), depois tilesets, cabeçalhos, warps, colisões, costura do mundo, mapas internos, jogador, animações de tiles, portas, sprites de surfe e NPCs. Em seguida exporta o efeito de grama, verifica os arquivos exigidos pelo runtime e confirma que nenhum tile de fundo usado está totalmente transparente e executa a suíte completa de validação. Essa ordem evita um erro do agregador upstream, que tenta validar o sprite do jogador antes de gerá-lo.
+A extração é executada por `extract-map.sh`. Ela chama os 12 exportadores da engine na ordem correta: layouts primeiro (necessários para descobrir os pares de tilesets), depois tilesets, cabeçalhos, warps, colisões, costura do mundo, mapas internos, jogador, animações de tiles, portas, sprites de surfe e NPCs. Em seguida exporta o efeito de grama, verifica os arquivos exigidos pelo runtime, confirma que nenhum tile de fundo usado está totalmente transparente, valida a rota caminhável Pallet Town → Pewter City através da Viridian Forest e executa a suíte completa de validação. O CI também inspeciona as capturas do navegador para reprovar grandes regiões pretas. Essa ordem evita um erro do agregador upstream, que tenta validar o sprite do jogador antes de gerá-lo.
 
 O pequeno patch em `patches/engine/` evita que a ausência do efeito cosmético de poeira ao aterrissar interrompa a inicialização do jogo; os demais assets obrigatórios são verificados pelo `validate-runtime-assets.py`.
 
