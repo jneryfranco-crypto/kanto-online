@@ -207,49 +207,35 @@ jobs:
               return path.map(at => ({ x: at % width, y: Math.floor(at / width) }));
             };
             const walkPath = async (target, label) => {
-              // Follow straight sections in one held input instead of issuing one
-              // browser command per tile. This keeps the end-to-end route test bounded
-              // while still observing the real player position and collision grid.
+              // Cache the large collision grid once. Only small player-position
+              // objects cross the browser boundary during movement to avoid V8
+              // repeatedly allocating copies of the entire world map.
               let snap = await getSnapshot();
-              let segments = 0;
+              const mapId = snap.map.id;
+              const map = { ...snap.map, collision: Array.from(snap.map.collision) };
+              let steps = 0;
               while (snap.pos.x !== target.x || snap.pos.y !== target.y) {
-                if (++segments > 200) {
-                  throw new Error(label + ': route did not converge; current=' + JSON.stringify(snap.pos) + ' target=' + JSON.stringify(target) + ' map=' + snap.map.id);
+                if (++steps > 1200) {
+                  throw new Error(label + ': route did not converge; current=' + JSON.stringify(snap.pos) + ' target=' + JSON.stringify(target) + ' map=' + mapId);
                 }
-                const path = findPath(snap.map, snap.pos, target);
-                if (!path?.length) throw new Error(label + ': no collision-free path from ' + JSON.stringify(snap.pos) + ' to ' + JSON.stringify(target) + ' on ' + snap.map.id);
-                const first = path[0];
-                const dx = first.x - snap.pos.x, dy = first.y - snap.pos.y;
+                const path = findPath(map, snap.pos, target);
+                if (!path?.length) throw new Error(label + ': no collision-free path from ' + JSON.stringify(snap.pos) + ' to ' + JSON.stringify(target) + ' on ' + mapId);
+                const next = path[0];
+                const dx = next.x - snap.pos.x, dy = next.y - snap.pos.y;
                 const dir = directions.find(d => d.dx === dx && d.dy === dy);
                 if (!dir) throw new Error(label + ': non-adjacent route step');
-                let end = first;
-                let tiles = 1;
-                for (let i = 1; i < path.length; i++) {
-                  const step = path[i];
-                  if (step.x - end.x !== dir.dx || step.y - end.y !== dir.dy) break;
-                  end = step;
-                  tiles++;
-                }
                 await page.keyboard.down(dir.key);
-                try {
-                  await page.waitForFunction(
-                    ({ x, y }) => {
-                      const p = window.__gameDebug.getPlayerPos();
-                      return p.x === x && p.y === y;
-                    },
-                    end,
-                    { timeout: Math.min(30000, tiles * 1200 + 3000) },
-                  );
-                } catch {
-                  throw new Error(label + ': could not complete straight segment of ' + tiles + ' tiles toward ' + JSON.stringify(end) + '; current=' + JSON.stringify(await getSnapshot()));
-                } finally {
-                  await page.keyboard.up(dir.key);
+                await page.waitForTimeout(200);
+                await page.keyboard.up(dir.key);
+                await page.waitForTimeout(300);
+                const pos = await page.evaluate(() => window.__gameDebug.getPlayerPos());
+                if (pos.x === snap.pos.x && pos.y === snap.pos.y) {
+                  await page.waitForTimeout(250);
                 }
-                await page.waitForTimeout(250);
-                snap = await getSnapshot();
-                if (segments % 10 === 0) console.log('ROUTE_PROGRESS=' + label + ' ' + JSON.stringify({ segments, pos: snap.pos, target }));
+                snap.pos = await page.evaluate(() => window.__gameDebug.getPlayerPos());
+                if (steps % 25 === 0) console.log('ROUTE_PROGRESS=' + label + ' ' + JSON.stringify({ steps, pos: snap.pos, target }));
               }
-              console.log('ROUTE_WALK=' + label + ' ' + JSON.stringify({ target, final: snap.pos, map: snap.map.id, zone: snap.zone, segments }));
+              console.log('ROUTE_WALK=' + label + ' ' + JSON.stringify({ target, final: snap.pos, map: mapId, zone: snap.zone, steps }));
             };
             const moveToWarp = async (destMap, label) => {
               let snap = await getSnapshot();
