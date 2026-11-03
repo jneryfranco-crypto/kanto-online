@@ -3,7 +3,7 @@
 from pathlib import Path
 from PIL import Image
 
-ROOT = Path(__file__).resolve().parents[1]
+ROOT = Path(__file__).resolve().parent
 SOURCE = ROOT / "decomp" / "graphics" / "field_effects" / "pics" / "tall_grass.png"
 DEST = ROOT / "public" / "sprites" / "tall_grass.png"
 
