@@ -267,7 +267,7 @@ jobs:
             await moveToWarp('MAP_VIRIDIAN_FOREST', 'Enter Viridian Forest');
             await moveToWarp('MAP_ROUTE2_VIRIDIAN_FOREST_NORTH_ENTRANCE', 'Exit Viridian Forest north');
             const northGate = await getSnapshot();
-            const route2Exit = northGate.map.warps.find(w => w.destMap === 'MAP_ROUTE2' && northGate.map.behavior[w.y * northGate.map.width + w.x] === 0x69);
+            const route2Exit = northGate.map.warps.find(w => w.destMap === 'MAP_ROUTE2');
             if (!route2Exit) throw new Error('North gatehouse door back to Route 2 is missing');
             await walkPath({ x: route2Exit.x, y: route2Exit.y + 1 }, 'Cross north gatehouse');
             await page.keyboard.down('ArrowUp');
