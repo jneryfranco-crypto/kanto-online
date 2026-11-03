@@ -46,7 +46,21 @@ A extração é executada por `extract-map.sh`. Ela chama os 12 exportadores da 
 
 O pequeno patch em `patches/engine/` evita que a ausência do efeito cosmético de poeira ao aterrissar interrompa a inicialização do jogo; os demais assets obrigatórios são verificados pelo `validate-runtime-assets.py`.
 
-Para iniciar manualmente depois da preparação:
+Para iniciar a beta local depois da preparação (sem depender de servidor online):
+
+**Windows PowerShell:**
+```powershell
+.\\start-beta.ps1
+```
+
+**macOS / Linux:**
+```bash
+bash ./start-beta.sh
+```
+
+Abra `http://127.0.0.1:3000` no navegador do mesmo computador. Mantenha o terminal aberto enquanto joga; use Ctrl+C para encerrar. Depois que a preparação e a extração terminarem, o jogo roda localmente e não precisa de hospedagem online.
+
+Também é possível iniciar manualmente:
 
 ```bash
 cd engine
