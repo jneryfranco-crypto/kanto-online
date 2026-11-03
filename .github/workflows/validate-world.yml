@@ -106,6 +106,35 @@ jobs:
               diagnostics.forEach(line => console.error(line));
               throw new Error('Game did not finish initialization; debug API or rendered canvas is missing.');
             }
+
+            // Exercise real keyboard movement and collision, without using debug teleport.
+            const beforeWalk = await page.evaluate(() => window.__gameDebug.getPlayerPos());
+            await page.keyboard.down('ArrowUp');
+            await page.waitForTimeout(125);
+            await page.keyboard.up('ArrowUp');
+            await page.waitForTimeout(150);
+            const afterWalk = await page.evaluate(() => window.__gameDebug.getPlayerPos());
+            if (afterWalk.x !== beforeWalk.x || afterWalk.y !== beforeWalk.y - 1) {
+              throw new Error('Real movement failed: expected one tile north, got ' + JSON.stringify(afterWalk));
+            }
+            await page.keyboard.down('ArrowDown');
+            await page.waitForTimeout(125);
+            await page.keyboard.up('ArrowDown');
+            await page.waitForTimeout(150);
+            const restored = await page.evaluate(() => window.__gameDebug.getPlayerPos());
+            if (restored.x !== beforeWalk.x || restored.y !== beforeWalk.y) {
+              throw new Error('Return movement failed: expected original spawn, got ' + JSON.stringify(restored));
+            }
+            await page.keyboard.down('ArrowRight');
+            await page.waitForTimeout(125);
+            await page.keyboard.up('ArrowRight');
+            await page.waitForTimeout(150);
+            const blocked = await page.evaluate(() => window.__gameDebug.getPlayerPos());
+            if (blocked.x !== beforeWalk.x || blocked.y !== beforeWalk.y) {
+              throw new Error('Collision failed: player moved into blocked tile, got ' + JSON.stringify(blocked));
+            }
+            console.log('PLAYER_MOVEMENT_AND_COLLISION=PASS ' + JSON.stringify({ beforeWalk, afterWalk, restored, blocked }));
+
             const locations = [
               ['pallet_town', 74, 272, 'MAP_PALLET_TOWN'],
               ['viridian_city', 74, 202, 'MAP_VIRIDIAN_CITY'],
